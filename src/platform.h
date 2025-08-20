@@ -1,6 +1,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include "compat.h"
 #include <windows.h>
 #include <stdbool.h>
 #include <stdint.h>

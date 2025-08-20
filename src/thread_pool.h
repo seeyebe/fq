@@ -1,10 +1,11 @@
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
 
+#include "compat.h"
 #include <windows.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdatomic.h>
+
 
 typedef struct thread_pool thread_pool_t;
 
@@ -20,12 +21,16 @@ typedef struct {
     atomic_bool *stop_flag;
 } thread_pool_config_t;
 
+// Create a new thread pool with the given config
 thread_pool_t* thread_pool_create(const thread_pool_config_t *config);
 
+// Submit work to be done - returns false if queue is full or pool is shutting down
 bool thread_pool_submit(thread_pool_t *pool, work_function_t work_func, void *user_data);
 
+// Wait for all work to finish, with optional timeout
 bool thread_pool_wait_completion(thread_pool_t *pool, DWORD timeout_ms);
 
+// Clean up and destroy the pool
 void thread_pool_destroy(thread_pool_t *pool);
 
 typedef struct {

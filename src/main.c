@@ -1,24 +1,20 @@
+#include "compat.h"
 #include "search.h"
 #include "cli.h"
 #include "utils.h"
 #include "criteria.h"
+#include "output.h"
+#include "pattern.h"
+#include "platform.h"
+#include "preview.h"
+#include "thread_pool.h"
+#include "version.h"
+#include "regex/re.h"
+#include "regex/regex.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <stdatomic.h>
-
-#include "cli.c"
-#include "criteria.c"
-#include "output.c"
-#include "pattern.c"
-#include "platform.c"
-#include "preview.c"
-#include "regex/re.c"
-#include "regex/regex.c"
-#include "search.c"
-#include "thread_pool.c"
-#include "utils.c"
-#include "version.c"
 
 
 #include <time.h>

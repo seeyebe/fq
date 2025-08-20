@@ -1,103 +1,113 @@
 # rq
 
-**rq** is a high-performance recursive file search utility for Windows, written in modern C17.
+**rq** is a fast file search tool for Windows that doesn't suck. Built in C17 because life's too short for slow searches.
 
-## Quick Start
+## Why rq?
+
+- **Actually fast** - Multi-threaded search that uses all your CPU cores
+- **Smart filtering** - Find files by size, date, type, whatever you need
+- **Real glob support** - Because `*` should just work
+- **No bloat** - Single executable, no dependencies, no BS
+
+## Quick Examples
 
 ```bash
-# Find all C/C++ source files modified this year
-rq C:\Dev "*.c" --glob --ext c,h --after 2025-01-01
+# Find all those C files you've been looking for
+rq C:\Dev "*.c" --glob
 
-# Search for large images
-rq D:\Photos beach --ext jpg,png --size +500K
+# Hunt down massive files eating your disk space
+rq C:\ "" --size +100M
 
-# Export recent documents as JSON
-rq C:\Users\me\Documents report --ext pdf,docx --after 2025-01-01 --json
+# Find recent work documents
+rq . report --ext pdf,docx --after 2025-01-01
+
+# Search with some actual feedback
+rq D:\ "backup" --stats --threads 12
 ```
 
 ---
 
 ## Usage
 
-```text
-rq - fast file search tool for Windows
+```
+rq <where to look> <what to find> [how to find it]
+```
 
-Usage: rq <directory> <pattern> [OPTIONS]
+### Basic Search
+- `rq C:\Users\me pictures` - Find anything with "pictures" in the name
+- `rq . "*.jpg" --glob` - All JPG files in current directory and subdirs
+- `rq D:\ config --case` - Case-sensitive search for "config"
 
-Arguments:
-  <directory>         The directory to search in
-  <pattern>           Search pattern (use --glob for wildcards)
+### File Filters
+```bash
+--ext jpg,png,gif           # Only these file types
+--type image                # Built-in type filters (image, video, audio, etc.)
+--size +500K                # Bigger than 500KB
+--size -1M                  # Smaller than 1MB
+--after 2025-01-01          # Modified after this date
+--before 2024-12-31         # Modified before this date
+--max-depth 2               # Don't go too deep into folders
+```
 
-Search Options:
-  -c, --case              Case-sensitive search
-  -g, --glob              Enable glob patterns (* ? [] {})
-  -r, --regex             Enable regex patterns (filename matching)
-  -H, --include-hidden    Include hidden files and directories
-  -L, --follow-symlinks   Follow symbolic links
-      --no-skip           Don't skip common directories (node_modules, .git, etc.)
+### Search Options
+```bash
+--glob                      # Enable wildcards (* ? [] {})
+--regex                     # Use regex patterns (for the brave)
+--include-hidden            # Don't ignore hidden files
+--follow-symlinks           # Follow symbolic links
+--no-skip                   # Search everywhere (including .git, node_modules, etc.)
+```
 
-Filters:
-  -e, --ext <list>    Filter by file extensions (comma-separated)
-  -t, --type <type>   Filter by file type (text, image, video, audio, archive)
-      --min <size>    Minimum file size (supports K, M, G, T suffixes)
-      --max <size>    Maximum file size (supports K, M, G, T suffixes)
-      --size <size>   Exact file size, or +size (larger), -size (smaller)
-      --after <date>  Files modified after date (YYYY-MM-DD)
-      --before <date> Files modified before date (YYYY-MM-DD)
-  -d, --max-depth <n> Maximum recursion depth (0 = no recursion, default = unlimited)
-      --max-results <n>   Maximum number of results (0 = unlimited)
-
-Performance:
-  -j, --threads <n>   Number of worker threads (0 = auto)
-      --timeout <ms>  Search timeout in milliseconds
-      --stats         Show real-time thread pool statistics
-
-Output:
-      --preview [<n>]     Show preview of text files (default: 10 lines)
-      --out <file>        Write output to file
-      --json              Output results as JSON
-
-General:
-  -h, --help          Show this help message
-  -V, --version       Show version information
-
-Examples:
-  Search for all PNG files:
-    rq D:\ "*.png" --glob
-
-  Find documents larger than 1MB:
-    rq . document --min 1M --ext pdf,docx
-
-  Find files smaller than 100KB:
-    rq . "" --size -100K --ext txt
-
-  Case-sensitive search with thread monitoring:
-    rq C:\ "Config" --case --stats --threads 8
-
-For glob patterns: * (any chars), ? (single char), [abc] (char set), {jpg,png} (alternatives)
+### Output & Performance
+```bash
+--json                      # Machine-readable output
+--preview                   # Show file previews for text files
+--stats                     # Real-time search statistics
+--threads 8                 # Use 8 worker threads
+--timeout 30000             # Give up after 30 seconds
+--max-results 1000          # Stop after finding 1000 files
 ```
 
 ---
 
-## Building
+## Building This Thing
 
-### Option 1: GCC (Recommended)
-
+### The Easy Way (GCC/MinGW)
 ```bash
-gcc -std=c17 -Wall -Wextra -O3 -I src src/*.c -lshlwapi -o rq.exe
-```
+# One-liner that just works
+gcc -std=c17 -O3 src/*.c src/regex/*.c -lshlwapi -lkernel32 -o rq.exe
 
-### Option 2: Make (MinGW or Bash)
-
-```bash
+# Or use the Makefile like a civilized person
 make
-./build/rq.exe
+```
+
+### The Microsoft Way (MSVC)
+```cmd
+:: Basic build (works on any MSVC version)
+nmake msvc
+
+:: Fancy build with C11 atomics (VS 2022 17.5+ only)
+nmake msvc-c11
+
+:: When things go wrong
+nmake msvc-debug
+```
+
+**MSVC Heads Up:** Microsoft's C11 atomics support is... complicated. Older versions don't have it, newer versions hide it behind experimental flags. The code handles this automatically, but if you want the fancy atomic operations, you need VS 2022 17.5 or later with `/experimental:c11atomics`.
+
+### 32-bit Build (Why Though?)
+```bash
+i686-w64-mingw32-gcc -std=c17 -O3 src/*.c src/regex/*.c -lshlwapi -lkernel32 -o rq.exe
 ```
 
 ---
+
+## Contributing
+
+Found a bug? Have an idea? PRs welcome! This is a small project, so don't expect enterprise-level process.
 
 ## License
 
-rq is released under the MIT License. See the [LICENSE](LICENSE) file for full license details.
+MIT License - do whatever you want with this code.
 
-Copyright (c) 2025 rq Contributors. All rights reserved.
+---

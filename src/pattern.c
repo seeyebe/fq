@@ -214,7 +214,11 @@ bool pattern_matches(const char *text, const char *pattern, bool case_sensitive,
                 if (suffix_len > 0) {
                     suffix = malloc(suffix_len + 1);
                     if (suffix) {
-                        strcpy(suffix, brace_end + 1);
+                        #ifdef _MSC_VER
+                            strcpy_s(suffix, suffix_len + 1, brace_end + 1);
+                        #else
+                            strcpy(suffix, brace_end + 1);
+                        #endif
                     }
                 }
 
@@ -269,8 +273,13 @@ bool pattern_matches(const char *text, const char *pattern, bool case_sensitive,
                 return false;
             }
 
-            strcpy(text_lower, text);
-            strcpy(pattern_lower, pattern);
+            #ifdef _MSC_VER
+                strcpy_s(text_lower, strlen(text) + 1, text);
+                strcpy_s(pattern_lower, strlen(pattern) + 1, pattern);
+            #else
+                strcpy(text_lower, text);
+                strcpy(pattern_lower, pattern);
+            #endif
             CharLowerBuffA(text_lower, (DWORD)strlen(text_lower));
             CharLowerBuffA(pattern_lower, (DWORD)strlen(pattern_lower));
             bool result = strstr(text_lower, pattern_lower) != NULL;
