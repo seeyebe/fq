@@ -33,6 +33,7 @@ void print_usage(const char *program_name) {
     printf("  -L, --follow-symlinks   Follow symbolic links\n");
     printf("      --folders           Include folders in results\n");
     printf("      --folders-only      Return only folders (no files)\n");
+    printf("  -q, --quiet             Suppress progress/summary output\n");
     printf("      --no-skip           Don't skip common directories (node_modules, .git, etc.)\n\n");
     printf("      --color <when>      Color output: auto|always|never\n\n");
 
@@ -130,6 +131,8 @@ int parse_command_line(int argc, char *argv[], search_criteria_t *criteria, cli_
         } else if (strcmp(argv[i], "--files-only") == 0) {
             criteria->include_directories = false;
             criteria->include_files = true;
+        } else if (strcmp(argv[i], "--quiet") == 0 || strcmp(argv[i], "-q") == 0) {
+            options->quiet = true;
         } else if (strcmp(argv[i], "--ext") == 0 || strcmp(argv[i], "-e") == 0) {
             if (++i >= argc) {
                 criteria_cleanup(criteria);

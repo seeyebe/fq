@@ -17,6 +17,7 @@ typedef struct cli_options {
     bool show_help;
     bool show_version;
     bool show_stats;
+    bool quiet;
     color_mode_t color_mode;
 } cli_options_t;
 

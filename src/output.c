@@ -80,9 +80,6 @@ static void output_text_format(FILE *fp, const search_result_t *results, size_t 
         current = current->next;
     }
 
-    if (count > 0) {
-        fprintf(stderr, "Found %zu results.\n", count);
-    }
 }
 
 int output_search_results(FILE *fp, const search_result_t *results, size_t count, output_format_t format) {
@@ -125,9 +122,6 @@ static void output_text_format_with_preview(FILE *fp, const search_result_t *res
         current = current->next;
     }
 
-    if (count > 0) {
-        fprintf(stderr, "Found %zu results.\n", count);
-    }
 }
 
 int output_search_results_with_preview(FILE *fp, const search_result_t *results, size_t count,

@@ -17,13 +17,6 @@ typedef struct {
     size_t depth;
 } directory_work_t;
 
-static const char* system_paths[] = {
-    "\\$Recycle.Bin", "\\System Volume Information", "\\Windows\\System32",
-    "\\Windows\\SysWOW64", "\\Program Files", "\\Program Files (x86)",
-    "\\ProgramData", "\\Recovery", "\\Intel", "\\AMD", "\\NVIDIA",
-    "\\hiberfil.sys", "\\pagefile.sys", "\\swapfile.sys"
-};
-
 static const char* skip_directories[] = {
     "$RECYCLE.BIN", "System Volume Information", "Windows", "Program Files",
     "Program Files (x86)", "ProgramData", "Recovery", "Intel", "AMD", "NVIDIA",
@@ -31,13 +24,71 @@ static const char* skip_directories[] = {
     "Release", ".vs", "packages", "bower_components", "dist", "build"
 };
 
+static bool component_equals(const char *component, const char *name) {
+    return _stricmp(component, name) == 0;
+}
+
 static bool is_system_directory(const char *path) {
     if (!path) return false;
 
-    for (size_t i = 0; i < sizeof(system_paths) / sizeof(system_paths[0]); i++) {
-        if (strstr(path, system_paths[i])) return true;
+    // Skip drive letter
+    const char *p = path;
+    if (p[1] == ':') {
+        p += 2;
     }
-    return false;
+
+    // Skip leading separators
+    while (*p == '\\' || *p == '/') {
+        p++;
+    }
+
+    bool saw_windows = false;
+
+    while (*p) {
+        const char *start = p;
+        while (*p && *p != '\\' && *p != '/') {
+            p++;
+        }
+        size_t len = (size_t)(p - start);
+        if (len > 0) {
+            char component[256];
+            if (len >= sizeof(component)) {
+                len = sizeof(component) - 1;
+            }
+            memcpy(component, start, len);
+            component[len] = '\0';
+
+            if (component_equals(component, "windows")) {
+                saw_windows = true;
+            } else {
+                if (saw_windows && (component_equals(component, "system32") || component_equals(component, "syswow64"))) {
+                    return true;
+                }
+                saw_windows = false;
+            }
+
+            if (component_equals(component, "$recycle.bin") ||
+                component_equals(component, "system volume information") ||
+                component_equals(component, "program files") ||
+                component_equals(component, "program files (x86)") ||
+                component_equals(component, "programdata") ||
+                component_equals(component, "recovery") ||
+                component_equals(component, "intel") ||
+                component_equals(component, "amd") ||
+                component_equals(component, "nvidia") ||
+                component_equals(component, "hiberfil.sys") ||
+                component_equals(component, "pagefile.sys") ||
+                component_equals(component, "swapfile.sys")) {
+                return true;
+            }
+        }
+
+        if (*p == '\\' || *p == '/') {
+            p++;
+        }
+    }
+
+    return saw_windows; // unlikely, but if path ends with "windows" treat as system
 }
 
 static bool should_skip_directory(const char *dirname, const search_criteria_t *criteria) {

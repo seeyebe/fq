@@ -14,7 +14,7 @@ SOURCES = $(SRCDIR)/main.c $(SRCDIR)/cli.c $(SRCDIR)/criteria.c $(SRCDIR)/output
 TARGET = fq.exe
 BUILDDIR = build
 OUTFILE = $(BUILDDIR)/$(TARGET)
-LIBS = -lshlwapi -lkernel32
+LIBS = -lshlwapi -lkernel32 -lshell32
 
 # Debug build flags
 DEBUG_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O0 -g -DDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer

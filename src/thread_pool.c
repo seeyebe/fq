@@ -18,11 +18,13 @@ struct thread_pool {
     work_item_t *queue_head;
     work_item_t *queue_tail;
     HANDLE work_semaphore;
+    HANDLE done_event;
+    bool shutdown_requested;
 
-    atomic_size_t active_work_items;
-    atomic_size_t completed_work_items;
-    atomic_size_t total_submitted;
-    atomic_size_t queued_work_items;
+    size_t active_work_items;
+    size_t completed_work_items;
+    size_t total_submitted;
+    size_t queued_work_items;
 
     thread_pool_config_t config;
 };
@@ -35,10 +37,7 @@ static DWORD WINAPI thread_pool_worker(LPVOID param) {
             break;
         }
 
-        DWORD wait_result = WaitForSingleObject(pool->work_semaphore, 100);
-        if (wait_result == WAIT_TIMEOUT) {
-            continue;
-        }
+        DWORD wait_result = WaitForSingleObject(pool->work_semaphore, INFINITE);
         if (wait_result != WAIT_OBJECT_0) {
             break;
         }
@@ -51,6 +50,10 @@ static DWORD WINAPI thread_pool_worker(LPVOID param) {
             if (!pool->queue_head) {
                 pool->queue_tail = NULL;
             }
+            if (pool->queued_work_items > 0) {
+                pool->queued_work_items--;
+            }
+            pool->active_work_items++;
         }
         LeaveCriticalSection(&pool->queue_lock);
 
@@ -58,13 +61,18 @@ static DWORD WINAPI thread_pool_worker(LPVOID param) {
             continue;
         }
 
-        atomic_fetch_sub(&pool->queued_work_items, 1);
-        atomic_fetch_add(&pool->active_work_items, 1);
-
         item->work_func(NULL, item->user_data);
 
-        atomic_fetch_add(&pool->completed_work_items, 1);
-        atomic_fetch_sub(&pool->active_work_items, 1);
+        EnterCriticalSection(&pool->queue_lock);
+        pool->completed_work_items++;
+        if (pool->active_work_items > 0) {
+            pool->active_work_items--;
+        }
+
+        if (pool->shutdown_requested && pool->active_work_items == 0 && pool->queued_work_items == 0) {
+            SetEvent(pool->done_event);
+        }
+        LeaveCriticalSection(&pool->queue_lock);
 
         free(item);
     }
@@ -85,14 +93,17 @@ thread_pool_t* thread_pool_create(const thread_pool_config_t *config) {
     size_t hw_threads = sysinfo.dwNumberOfProcessors > 0 ? sysinfo.dwNumberOfProcessors : 4;
     pool->thread_count = config->max_threads > 0 ? config->max_threads : hw_threads;
 
-    atomic_init(&pool->active_work_items, 0);
-    atomic_init(&pool->completed_work_items, 0);
-    atomic_init(&pool->total_submitted, 0);
-    atomic_init(&pool->queued_work_items, 0);
+    pool->active_work_items = 0;
+    pool->completed_work_items = 0;
+    pool->total_submitted = 0;
+    pool->queued_work_items = 0;
 
     InitializeCriticalSection(&pool->queue_lock);
     pool->work_semaphore = CreateSemaphoreA(NULL, 0, LONG_MAX, NULL);
-    if (!pool->work_semaphore) {
+    pool->done_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+    if (!pool->work_semaphore || !pool->done_event) {
+        if (pool->work_semaphore) CloseHandle(pool->work_semaphore);
+        if (pool->done_event) CloseHandle(pool->done_event);
         DeleteCriticalSection(&pool->queue_lock);
         free(pool);
         return NULL;
@@ -146,10 +157,12 @@ bool thread_pool_submit(thread_pool_t *pool, work_function_t work_func, void *us
     } else {
         pool->queue_head = pool->queue_tail = item;
     }
+    pool->queued_work_items++;
+    pool->total_submitted++;
+    // new work means completion not reached
+    ResetEvent(pool->done_event);
     LeaveCriticalSection(&pool->queue_lock);
 
-    atomic_fetch_add(&pool->queued_work_items, 1);
-    atomic_fetch_add(&pool->total_submitted, 1);
     ReleaseSemaphore(pool->work_semaphore, 1, NULL);
 
     return true;
@@ -158,10 +171,24 @@ bool thread_pool_submit(thread_pool_t *pool, work_function_t work_func, void *us
 bool thread_pool_wait_completion(thread_pool_t *pool, DWORD timeout_ms) {
     if (!pool) return false;
 
+    EnterCriticalSection(&pool->queue_lock);
+    pool->shutdown_requested = true;
+    ResetEvent(pool->done_event);
+    bool already_done = (pool->active_work_items == 0 && pool->queued_work_items == 0);
+    LeaveCriticalSection(&pool->queue_lock);
+
+    if (already_done) {
+        return true;
+    }
+
     DWORD start = GetTickCount();
     for (;;) {
-        size_t active = atomic_load(&pool->active_work_items);
-        size_t queued = atomic_load(&pool->queued_work_items);
+        size_t active, queued, completed;
+        EnterCriticalSection(&pool->queue_lock);
+        active = pool->active_work_items;
+        queued = pool->queued_work_items;
+        completed = pool->completed_work_items;
+        LeaveCriticalSection(&pool->queue_lock);
 
         if (active == 0 && queued == 0) {
             return true;
@@ -175,7 +202,6 @@ bool thread_pool_wait_completion(thread_pool_t *pool, DWORD timeout_ms) {
         }
 
         if (pool->config.progress_cb) {
-            size_t completed = atomic_load(&pool->completed_work_items);
             if (!pool->config.progress_cb(completed, active, pool->config.progress_user_data)) {
                 if (pool->config.stop_flag) {
                     atomic_store(pool->config.stop_flag, true);
@@ -184,7 +210,12 @@ bool thread_pool_wait_completion(thread_pool_t *pool, DWORD timeout_ms) {
             }
         }
 
-        Sleep(10);
+        DWORD wait_slice = (timeout_ms == INFINITE) ? 50 : (timeout_ms < 50 ? timeout_ms : 50);
+        DWORD wait_result = WaitForSingleObject(pool->done_event, wait_slice);
+        if (wait_result == WAIT_OBJECT_0) {
+            // signaled; loop will re-check counts
+            continue;
+        }
     }
 }
 
@@ -208,6 +239,7 @@ void thread_pool_destroy(thread_pool_t *pool) {
     }
 
     CloseHandle(pool->work_semaphore);
+    CloseHandle(pool->done_event);
     DeleteCriticalSection(&pool->queue_lock);
 
     work_item_t *item = pool->queue_head;
@@ -224,10 +256,12 @@ void thread_pool_destroy(thread_pool_t *pool) {
 bool thread_pool_get_stats(thread_pool_t *pool, thread_pool_stats_t *stats) {
     if (!pool || !stats) return false;
 
-    stats->active_threads = atomic_load(&pool->active_work_items);
-    stats->queued_work_items = atomic_load(&pool->queued_work_items);
-    stats->completed_work_items = atomic_load(&pool->completed_work_items);
-    stats->total_submitted = atomic_load(&pool->total_submitted);
+    EnterCriticalSection(&pool->queue_lock);
+    stats->active_threads = pool->active_work_items;
+    stats->queued_work_items = pool->queued_work_items;
+    stats->completed_work_items = pool->completed_work_items;
+    stats->total_submitted = pool->total_submitted;
+    LeaveCriticalSection(&pool->queue_lock);
 
     return true;
 }

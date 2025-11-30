@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <stdatomic.h>
+#include <windows.h>
+#include <shellapi.h>
 
 #ifndef _MSC_VER
 int _fileno(FILE *);
@@ -71,6 +73,31 @@ static void print_path_colored(const search_result_t *result, bool use_color) {
     printf("%s%s\x1b[0m\n", color, result->path);
 }
 
+static char** convert_wargv_to_utf8(int argc, wchar_t *wargv[]) {
+    if (argc <= 0) return NULL;
+    char **argv = (char**)calloc((size_t)argc, sizeof(char*));
+    if (!argv) return NULL;
+
+    for (int i = 0; i < argc; i++) {
+        if (wide_to_utf8(wargv[i], &argv[i]) < 0) {
+            for (int j = 0; j < i; j++) {
+                free(argv[j]);
+            }
+            free(argv);
+            return NULL;
+        }
+    }
+    return argv;
+}
+
+static void free_utf8_argv(int argc, char **argv) {
+    if (!argv) return;
+    for (int i = 0; i < argc; i++) {
+        free(argv[i]);
+    }
+    free(argv);
+}
+
 static bool streamed_result_callback(const search_result_t *result, void *user_data) {
     streamed_state_t *state = (streamed_state_t*)user_data;
     if (state->options->json_output) {
@@ -100,7 +127,7 @@ static bool streamed_progress_callback(size_t processed_files, size_t queued_dir
     (void)queued_dirs;
     streamed_state_t *state = (streamed_state_t*)user_data;
     time_t now = time(NULL);
-    if (!state->progress_shown && total_results == 0 && !state->options->show_stats) {
+    if (!state->progress_shown && total_results == 0 && !state->options->show_stats && !state->options->quiet) {
         if (difftime(now, state->start_time) >= 5.0) {
             fprintf(stderr, "Processed: %zu files, Found: %zu results...\n", processed_files, total_results);
             state->progress_shown = 1;
@@ -111,14 +138,30 @@ static bool streamed_progress_callback(size_t processed_files, size_t queued_dir
     return true;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv_placeholder[]) {
     search_criteria_t criteria;
     cli_options_t options = {0};
     search_result_t *results = NULL;
     size_t result_count = 0;
     int exit_code = 0;
+    (void)argv_placeholder;
 
-    if (parse_command_line(argc, argv, &criteria, &options) != 0) {
+    int wargc = 0;
+    wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+    if (!wargv) {
+        fprintf(stderr, "Error: failed to parse command line\n");
+        return 1;
+    }
+
+    char **argv = convert_wargv_to_utf8(wargc, wargv);
+
+    if (!argv) {
+        fprintf(stderr, "Error: argument conversion failed\n");
+        LocalFree(wargv);
+        return 1;
+    }
+
+    if (parse_command_line(wargc, argv, &criteria, &options) != 0) {
         if (!options.show_help && !options.show_version) {
             fprintf(stderr, "Error: Invalid command line arguments\n");
             exit_code = 1;
@@ -150,7 +193,9 @@ int main(int argc, char *argv[]) {
     }
     platform_closedir(test_dir);
 
-    fprintf(stderr, "Searching in '%s' for '%s'...\n", criteria.root_path, criteria.search_term ? criteria.search_term : "*");
+    if (!options.quiet) {
+        fprintf(stderr, "Searching in '%s' for '%s'...\n", criteria.root_path, criteria.search_term ? criteria.search_term : "*");
+    }
 
 
     streamed_state_t stream_state = {0};
@@ -172,7 +217,9 @@ int main(int argc, char *argv[]) {
         streamed_result_callback, &stream_state,
         streamed_progress_callback, &stream_state);
 
-    fprintf(stderr, "\n");
+    if (!options.quiet) {
+        fprintf(stderr, "\n");
+    }
 
     if (search_result == -2) {
         fprintf(stderr,
@@ -191,15 +238,19 @@ int main(int argc, char *argv[]) {
             goto cleanup;
         }
     } else {
-        if (result_count > 0) {
-            fprintf(stderr, "Found %zu results.\n", result_count);
-        } else {
-            fprintf(stderr, "No results found.\n");
+        if (!options.quiet) {
+            if (result_count > 0) {
+                fprintf(stderr, "Found %zu results.\n", result_count);
+            } else {
+                fprintf(stderr, "No results found.\n");
+            }
         }
     }
 
 cleanup:
     free_search_results(results);
     criteria_cleanup(&criteria);
+    free_utf8_argv(wargc, argv);
+    LocalFree(wargv);
     return exit_code;
 }

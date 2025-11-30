@@ -33,13 +33,13 @@ fq . build --folders
 - Directories: `--folders`, `--folders-only`, `--files-only`, `--max-depth <n>`
 - Filters: `--ext <list>`, `--type <text|image|video|audio|archive>`, `--min/--max/--size <size>`, `--after/--before <YYYY-MM-DD>`
 - Traversal: `--include-hidden`, `--follow-symlinks`, `--no-skip` (don’t skip common dirs)
-- Output: `--json`, `--preview [n]`, `--out <file>`
+- Output: `--json`, `--preview [n]`, `--out <file>`, `--quiet`, `--color auto|always|never`
 - Performance: `--threads <n>`, `--timeout <ms>`, `--max-results <n>`, `--stats`
 
 ## Build
 ```bash
 # GCC / MinGW
-gcc -std=c11 -O3 src/*.c src/regex/*.c -lshlwapi -lkernel32 -o fq.exe
+gcc -std=c11 -O3 src/*.c src/regex/*.c -lshlwapi -lkernel32 -lshell32 -o fq.exe
 make          # uses the Makefile (defaults to -std=c11)
 ```
 ```cmd
