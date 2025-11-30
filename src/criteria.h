@@ -34,6 +34,8 @@ typedef struct search_criteria {
     bool include_hidden;
     size_t max_results;
     size_t max_depth;
+    bool include_directories;
+    bool include_files;
 } search_criteria_t;
 
 void criteria_init(search_criteria_t *criteria);

@@ -6,9 +6,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 static void init_options(cli_options_t *options) {
     memset(options, 0, sizeof(cli_options_t));
+    options->color_mode = COLOR_AUTO;
 }
 
 static int parse_date_arg(const char *arg, FILETIME *file_time) {
@@ -16,7 +18,7 @@ static int parse_date_arg(const char *arg, FILETIME *file_time) {
 }
 
 void print_usage(const char *program_name) {
-    printf("rq - fast file search tool for Windows\n\n");
+    printf("fq - fast file and folder search tool for Windows\n\n");
     printf("Usage: %s <directory> <pattern> [OPTIONS]\n\n", program_name);
 
     printf("Arguments:\n");
@@ -26,10 +28,13 @@ void print_usage(const char *program_name) {
     printf("Search Options:\n");
     printf("  -c, --case              Case-sensitive search\n");
     printf("  -g, --glob              Enable glob patterns (* ? [] {})\n");
-    printf("  -r, --regex             Enable regex patterns (filename matching)\n");
+    printf("  -r, --regex             Enable regex patterns (name matching)\n");
     printf("  -H, --include-hidden    Include hidden files and directories\n");
     printf("  -L, --follow-symlinks   Follow symbolic links\n");
+    printf("      --folders           Include folders in results\n");
+    printf("      --folders-only      Return only folders (no files)\n");
     printf("      --no-skip           Don't skip common directories (node_modules, .git, etc.)\n\n");
+    printf("      --color <when>      Color output: auto|always|never\n\n");
 
     printf("Filters:\n");
     printf("  -e, --ext <list>    Filter by file extensions (comma-separated)\n");
@@ -117,6 +122,14 @@ int parse_command_line(int argc, char *argv[], search_criteria_t *criteria, cli_
             criteria->follow_symlinks = true;
         } else if (strcmp(argv[i], "--include-hidden") == 0 || strcmp(argv[i], "-H") == 0) {
             criteria->include_hidden = true;
+        } else if (strcmp(argv[i], "--folders") == 0 || strcmp(argv[i], "--dirs") == 0) {
+            criteria->include_directories = true;
+        } else if (strcmp(argv[i], "--folders-only") == 0 || strcmp(argv[i], "--dirs-only") == 0) {
+            criteria->include_directories = true;
+            criteria->include_files = false;
+        } else if (strcmp(argv[i], "--files-only") == 0) {
+            criteria->include_directories = false;
+            criteria->include_files = true;
         } else if (strcmp(argv[i], "--ext") == 0 || strcmp(argv[i], "-e") == 0) {
             if (++i >= argc) {
                 criteria_cleanup(criteria);
@@ -236,6 +249,22 @@ int parse_command_line(int argc, char *argv[], search_criteria_t *criteria, cli_
             options->output_file = argv[i];
         } else if (strcmp(argv[i], "--json") == 0) {
             options->json_output = true;
+        } else if (strcmp(argv[i], "--color") == 0) {
+            if (++i >= argc) {
+                criteria_cleanup(criteria);
+                return -1;
+            }
+            if (_stricmp(argv[i], "auto") == 0) {
+                options->color_mode = COLOR_AUTO;
+            } else if (_stricmp(argv[i], "always") == 0) {
+                options->color_mode = COLOR_ALWAYS;
+            } else if (_stricmp(argv[i], "never") == 0) {
+                options->color_mode = COLOR_NEVER;
+            } else {
+                fprintf(stderr, "Error: Invalid color mode '%s'. Use auto|always|never.\n", argv[i]);
+                criteria_cleanup(criteria);
+                return -1;
+            }
         } else if (strcmp(argv[i], "--preview") == 0) {
             criteria->preview_mode = true;
             if (i + 1 < argc && isdigit(argv[i + 1][0])) {

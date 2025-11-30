@@ -23,6 +23,8 @@ void criteria_init(search_criteria_t *criteria) {
     criteria->include_hidden = false;
     criteria->max_results = 0;        // Unlimited
     criteria->max_depth = SIZE_MAX;
+    criteria->include_directories = false;
+    criteria->include_files = true;
 }
 
 bool criteria_parse_extensions(search_criteria_t *criteria, const char *extensions_str) {
@@ -57,7 +59,7 @@ bool criteria_parse_extensions(search_criteria_t *criteria, const char *extensio
     }
 
     char *context = NULL;
-    char *token = strtok_s(copy, ",", &context);
+    char *token = strtok(copy, ",");
     size_t index = 0;
 
     while (token && index < count) {
@@ -75,7 +77,7 @@ bool criteria_parse_extensions(search_criteria_t *criteria, const char *extensio
             }
         }
 
-        token = strtok_s(NULL, ",", &context);
+        token = strtok(NULL, ",");
     }
 
     criteria->extensions_count = index;
@@ -113,6 +115,10 @@ bool criteria_validate(const search_criteria_t *criteria) {
     if (!criteria) return false;
 
     if (!criteria->root_path || *criteria->root_path == '\0') {
+        return false;
+    }
+
+    if (!criteria->include_files && !criteria->include_directories) {
         return false;
     }
 

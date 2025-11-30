@@ -11,10 +11,15 @@
 #include "version.h"
 #include "regex/re.h"
 #include "regex/regex.h"
+#include <io.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <stdatomic.h>
+
+#ifndef _MSC_VER
+int _fileno(FILE *);
+#endif
 
 
 #include <time.h>
@@ -26,7 +31,45 @@ typedef struct {
     int progress_shown;
     size_t last_processed;
     size_t last_results;
+    bool use_color;
 } streamed_state_t;
+
+static bool enable_vt_mode(void) {
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE || hOut == NULL) return false;
+    DWORD mode = 0;
+    if (!GetConsoleMode(hOut, &mode)) return false;
+    #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+    #endif
+    if (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) return true;
+    return SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+}
+
+static bool should_use_color(const cli_options_t *options) {
+    if (!options) return false;
+    if (options->json_output || options->output_file) return false;
+    switch (options->color_mode) {
+        case COLOR_ALWAYS:
+            return true;
+        case COLOR_NEVER:
+            return false;
+        case COLOR_AUTO:
+        default:
+            return _isatty(_fileno(stdout)) != 0;
+    }
+}
+
+static void print_path_colored(const search_result_t *result, bool use_color) {
+    if (!result) return;
+    if (!use_color) {
+        printf("%s\n", result->path);
+        return;
+    }
+
+    const char *color = result->is_directory ? "\x1b[36m" : "\x1b[32m";
+    printf("%s%s\x1b[0m\n", color, result->path);
+}
 
 static bool streamed_result_callback(const search_result_t *result, void *user_data) {
     streamed_state_t *state = (streamed_state_t*)user_data;
@@ -34,16 +77,20 @@ static bool streamed_result_callback(const search_result_t *result, void *user_d
         return true;
     }
     if (state->criteria->preview_mode) {
-        rq_file_type_t type = detect_file_type(result->path);
-        printf("%s\n", result->path);
-        if (type == RQ_FILE_TYPE_TEXT) {
-            preview_text_file(result->path, state->criteria->preview_lines, stdout);
+        print_path_colored(result, state->use_color);
+        if (!result->is_directory) {
+            fq_file_type_t type = detect_file_type(result->path);
+            if (type == FQ_FILE_TYPE_TEXT) {
+                preview_text_file(result->path, state->criteria->preview_lines, stdout);
+            } else {
+                preview_file_summary(result->path, stdout);
+            }
         } else {
-            preview_file_summary(result->path, stdout);
+            fprintf(stdout, "  [Directory]\n");
         }
         printf("\n");
     } else {
-        printf("%s\n", result->path);
+        print_path_colored(result, state->use_color);
     }
     fflush(stdout);
     return true;
@@ -113,6 +160,13 @@ int main(int argc, char *argv[]) {
     stream_state.progress_shown = 0;
     stream_state.last_processed = 0;
     stream_state.last_results = 0;
+    stream_state.use_color = false;
+
+    bool color_ok = should_use_color(&options);
+    if (color_ok) {
+        color_ok = enable_vt_mode();
+    }
+    stream_state.use_color = color_ok;
 
     int search_result = search_files_advanced(&criteria, &results, &result_count,
         streamed_result_callback, &stream_state,

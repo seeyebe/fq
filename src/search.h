@@ -15,6 +15,7 @@ typedef struct search_context search_context_t;
 
 struct search_result {
     char *path;
+    bool is_directory;
     uint64_t size;
     FILETIME mtime;
     search_result_t *next;
@@ -51,13 +52,7 @@ int search_files_advanced(search_criteria_t *criteria,
                          search_progress_callback_t progress_callback, void *progress_user_data);
 
 void free_search_results(search_result_t *results);
-search_result_t* create_search_result(const char *path, uint64_t size, FILETIME mtime);
-
-bool matches_criteria(const platform_file_info_t *file_info, const char *full_path,
-                     const search_criteria_t *criteria);
-
-bool is_system_directory(const char *path);
-bool should_skip_directory(const char *dirname, const search_criteria_t *criteria);
+search_result_t* create_search_result(const char *path, bool is_directory, uint64_t size, FILETIME mtime);
 
 void search_request_cancellation(search_context_t *ctx);
 

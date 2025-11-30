@@ -7,39 +7,39 @@
 #include <ctype.h>
 #include <windows.h>
 
-rq_file_type_t detect_file_type(const char *filepath) {
-    if (!filepath) return RQ_FILE_TYPE_UNKNOWN;
+fq_file_type_t detect_file_type(const char *filepath) {
+    if (!filepath) return FQ_FILE_TYPE_UNKNOWN;
 
     if (has_extension(filepath, text_extensions)) {
-        return RQ_FILE_TYPE_TEXT;
+        return FQ_FILE_TYPE_TEXT;
     }
     if (has_extension(filepath, image_extensions)) {
-        return RQ_FILE_TYPE_IMAGE;
+        return FQ_FILE_TYPE_IMAGE;
     }
     if (has_extension(filepath, video_extensions)) {
-        return RQ_FILE_TYPE_VIDEO;
+        return FQ_FILE_TYPE_VIDEO;
     }
     if (has_extension(filepath, audio_extensions)) {
-        return RQ_FILE_TYPE_AUDIO;
+        return FQ_FILE_TYPE_AUDIO;
     }
     if (has_extension(filepath, archive_extensions)) {
-        return RQ_FILE_TYPE_ARCHIVE;
+        return FQ_FILE_TYPE_ARCHIVE;
     }
 
     if (is_text_file(filepath)) {
-        return RQ_FILE_TYPE_TEXT;
+        return FQ_FILE_TYPE_TEXT;
     }
 
-    return RQ_FILE_TYPE_UNKNOWN;
+    return FQ_FILE_TYPE_UNKNOWN;
 }
 
-const char* file_type_to_string(rq_file_type_t type) {
+const char* file_type_to_string(fq_file_type_t type) {
     switch (type) {
-        case RQ_FILE_TYPE_TEXT: return "Text";
-        case RQ_FILE_TYPE_IMAGE: return "Image";
-        case RQ_FILE_TYPE_VIDEO: return "Video";
-        case RQ_FILE_TYPE_AUDIO: return "Audio";
-        case RQ_FILE_TYPE_ARCHIVE: return "Archive";
+        case FQ_FILE_TYPE_TEXT: return "Text";
+        case FQ_FILE_TYPE_IMAGE: return "Image";
+        case FQ_FILE_TYPE_VIDEO: return "Video";
+        case FQ_FILE_TYPE_AUDIO: return "Audio";
+        case FQ_FILE_TYPE_ARCHIVE: return "Archive";
         default: return "Unknown";
     }
 }
@@ -121,7 +121,7 @@ int preview_text_file(const char *filepath, size_t max_lines, FILE *output) {
 }
 
 int preview_file_summary(const char *filepath, FILE *output) {
-    rq_file_type_t type = detect_file_type(filepath);
+    fq_file_type_t type = detect_file_type(filepath);
 
     HANDLE hFile = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ, NULL,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);

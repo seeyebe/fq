@@ -36,7 +36,7 @@ static void json_escape_string(FILE *fp, const char *str) {
 static void output_json_format(FILE *fp, const search_result_t *results, size_t count) {
     fputs("{\n", fp);
     fputs("  \"type\": \"search\",\n", fp);
-    fprintf(fp, "  \"version\": \"%s\",\n", RQ_VERSION_STRING);
+    fprintf(fp, "  \"version\": \"%s\",\n", FQ_VERSION_STRING);
     fprintf(fp, "  \"count\": %zu,\n", count);
     fputs("  \"results\": [\n", fp);
 
@@ -49,6 +49,7 @@ static void output_json_format(FILE *fp, const search_result_t *results, size_t 
         json_escape_string(fp, current->path);
         fputs(",\n", fp);
 
+        fprintf(fp, "      \"directory\": %s,\n", current->is_directory ? "true" : "false");
         fprintf(fp, "      \"size\": %" PRIu64 ",\n", current->size);
 
         char time_buffer[64];
@@ -80,7 +81,7 @@ static void output_text_format(FILE *fp, const search_result_t *results, size_t 
     }
 
     if (count > 0) {
-        fprintf(stderr, "Found %zu files.\n", count);
+        fprintf(stderr, "Found %zu results.\n", count);
     }
 }
 
@@ -108,11 +109,15 @@ static void output_text_format_with_preview(FILE *fp, const search_result_t *res
         fputc('\n', fp);
 
         if (criteria && criteria->preview_mode) {
-            rq_file_type_t type = detect_file_type(current->path);
-            if (type == RQ_FILE_TYPE_TEXT) {
-                preview_text_file(current->path, criteria->preview_lines, fp);
+            if (current->is_directory) {
+                fprintf(fp, "  [Directory]\n");
             } else {
-                preview_file_summary(current->path, fp);
+                fq_file_type_t type = detect_file_type(current->path);
+                if (type == FQ_FILE_TYPE_TEXT) {
+                    preview_text_file(current->path, criteria->preview_lines, fp);
+                } else {
+                    preview_file_summary(current->path, fp);
+                }
             }
             fputc('\n', fp);
         }
@@ -121,7 +126,7 @@ static void output_text_format_with_preview(FILE *fp, const search_result_t *res
     }
 
     if (count > 0) {
-        fprintf(stderr, "Found %zu files.\n", count);
+        fprintf(stderr, "Found %zu results.\n", count);
     }
 }
 

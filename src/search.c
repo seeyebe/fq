@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strsafe.h>
 
 static thread_pool_stats_t last_thread_stats = {0};
 static bool last_thread_stats_valid = false;
@@ -32,7 +31,7 @@ static const char* skip_directories[] = {
     "Release", ".vs", "packages", "bower_components", "dist", "build"
 };
 
-bool is_system_directory(const char *path) {
+static bool is_system_directory(const char *path) {
     if (!path) return false;
 
     for (size_t i = 0; i < sizeof(system_paths) / sizeof(system_paths[0]); i++) {
@@ -41,7 +40,7 @@ bool is_system_directory(const char *path) {
     return false;
 }
 
-bool should_skip_directory(const char *dirname, const search_criteria_t *criteria) {
+static bool should_skip_directory(const char *dirname, const search_criteria_t *criteria) {
     if (!dirname || !criteria || !criteria->skip_common_dirs) return false;
 
     for (size_t i = 0; i < sizeof(skip_directories) / sizeof(skip_directories[0]); i++) {
@@ -50,7 +49,7 @@ bool should_skip_directory(const char *dirname, const search_criteria_t *criteri
     return false;
 }
 
-search_result_t* create_search_result(const char *path, uint64_t size, FILETIME mtime) {
+search_result_t* create_search_result(const char *path, bool is_directory, uint64_t size, FILETIME mtime) {
     if (!path) return NULL;
 
     search_result_t *result = malloc(sizeof(search_result_t));
@@ -61,7 +60,13 @@ search_result_t* create_search_result(const char *path, uint64_t size, FILETIME 
         free(result);
         return NULL;
     }
+    for (char *p = result->path; *p; ++p) {
+        if (*p == '/') {
+            *p = '\\';
+        }
+    }
 
+    result->is_directory = is_directory;
     result->size = size;
     result->mtime = mtime;
     result->next = NULL;
@@ -69,7 +74,7 @@ search_result_t* create_search_result(const char *path, uint64_t size, FILETIME 
     return result;
 }
 
-static bool add_result_safe(search_context_t *ctx, const char *path, uint64_t size, FILETIME mtime) {
+static bool add_result_safe(search_context_t *ctx, const char *path, bool is_directory, uint64_t size, FILETIME mtime) {
     if (!ctx || !path) return false;
 
     if (atomic_load(&ctx->should_stop)) {
@@ -82,10 +87,11 @@ static bool add_result_safe(search_context_t *ctx, const char *path, uint64_t si
         return false;
     }
 
-    search_result_t *result = create_search_result(path, size, mtime);
+    search_result_t *result = create_search_result(path, is_directory, size, mtime);
     if (!result) return false;
 
     bool continue_search = true;
+    EnterCriticalSection(&ctx->results_lock);
     if (ctx->result_callback) {
         continue_search = ctx->result_callback(result, ctx->result_user_data);
         if (!continue_search) {
@@ -93,7 +99,6 @@ static bool add_result_safe(search_context_t *ctx, const char *path, uint64_t si
         }
     }
 
-    EnterCriticalSection(&ctx->results_lock);
     if (!ctx->results_head) {
         ctx->results_head = result;
         ctx->results_tail = result;
@@ -112,23 +117,32 @@ static bool add_result_safe(search_context_t *ctx, const char *path, uint64_t si
     return continue_search;
 }
 
-bool matches_criteria(const platform_file_info_t *file_info, const char *full_path,
-                     const search_criteria_t *criteria) {
-    (void)full_path;
-
-    if (!file_info || !criteria || file_info->is_directory) return false;
+static bool matches_file_criteria(const platform_file_info_t *file_info, const search_criteria_t *criteria) {
+    if (!file_info || !criteria) return false;
 
     if (!criteria_size_matches(file_info->size, criteria)) return false;
-
     if (!criteria_time_matches(&file_info->mtime, criteria)) return false;
-
     if (!criteria_extension_matches(file_info->name, criteria)) return false;
-
     if (!criteria_file_type_matches(file_info->name, criteria)) return false;
 
     if (criteria->search_term && *criteria->search_term) {
         if (!pattern_matches(file_info->name, criteria->search_term,
-                           criteria->case_sensitive, criteria->use_glob, criteria->use_regex)) {
+                             criteria->case_sensitive, criteria->use_glob, criteria->use_regex)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool matches_directory_criteria(const platform_file_info_t *file_info, const search_criteria_t *criteria) {
+    if (!file_info || !criteria) return false;
+
+    if (!criteria_time_matches(&file_info->mtime, criteria)) return false;
+
+    if (criteria->search_term && *criteria->search_term) {
+        if (!pattern_matches(file_info->name, criteria->search_term,
+                             criteria->case_sensitive, criteria->use_glob, criteria->use_regex)) {
             return false;
         }
     }
@@ -168,15 +182,8 @@ static void process_directory_work(void *context, void *user_data) {
         }
 
         char full_path[MAX_PATH * 2];
-        HRESULT hr = StringCchCopyA(full_path, sizeof(full_path), work->directory_path);
-        if (SUCCEEDED(hr)) {
-            hr = StringCchCatA(full_path, sizeof(full_path), "\\");
-        }
-        if (SUCCEEDED(hr)) {
-            hr = StringCchCatA(full_path, sizeof(full_path), file_info.name);
-        }
-
-        if (FAILED(hr)) {
+        int written = snprintf(full_path, sizeof(full_path), "%s\\%s", work->directory_path, file_info.name);
+        if (written < 0 || (size_t)written >= sizeof(full_path)) {
             platform_free_file_info(&file_info);
             continue;
         }
@@ -188,6 +195,10 @@ static void process_directory_work(void *context, void *user_data) {
             }
 
             if (!should_skip_directory(file_info.name, ctx->criteria)) {
+                if (ctx->criteria->include_directories && matches_directory_criteria(&file_info, ctx->criteria)) {
+                    add_result_safe(ctx, full_path, true, 0, file_info.mtime);
+                }
+
                 // Check depth limit before recursing into subdirectory
                 // max_depth == 0 means current directory only (no recursion)
                 // work->depth starts at 0, so depth 1+ directories require max_depth >= 1
@@ -210,8 +221,8 @@ static void process_directory_work(void *context, void *user_data) {
                 }
             }
         } else {
-            if (matches_criteria(&file_info, full_path, ctx->criteria)) {
-                add_result_safe(ctx, full_path, file_info.size, file_info.mtime);
+            if (ctx->criteria->include_files && matches_file_criteria(&file_info, ctx->criteria)) {
+                add_result_safe(ctx, full_path, false, file_info.size, file_info.mtime);
             }
             atomic_fetch_add(&ctx->processed_files, 1);
         }
@@ -229,6 +240,8 @@ cleanup:
 
 static bool search_progress_callback(size_t processed_files, size_t queued_dirs, void *user_data) {
     search_context_t *ctx = (search_context_t*)user_data;
+    (void)processed_files;
+    (void)queued_dirs;
 
     if (ctx->thread_pool) {
         thread_pool_get_stats(ctx->thread_pool, &last_thread_stats);
@@ -236,8 +249,10 @@ static bool search_progress_callback(size_t processed_files, size_t queued_dirs,
     }
 
     if (ctx->progress_callback) {
+        size_t files_processed = atomic_load(&ctx->processed_files);
+        size_t dirs_pending = atomic_load(&ctx->queued_dirs);
         size_t total_results = atomic_load(&ctx->total_results);
-        return ctx->progress_callback(processed_files, queued_dirs, total_results, ctx->progress_user_data);
+        return ctx->progress_callback(files_processed, dirs_pending, total_results, ctx->progress_user_data);
     }
 
     return !atomic_load(&ctx->should_stop);
