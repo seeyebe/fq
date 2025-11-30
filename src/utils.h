@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "compat.h"
 #include <windows.h>
 #include <stdbool.h>
 #include <stddef.h>

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <wchar.h>
 
 int utf8_to_wide(const char *utf8_str, wchar_t **wide_str) {
     if (!utf8_str || !wide_str) return -1;
@@ -62,13 +63,11 @@ HRESULT make_long_path(const char *path, wchar_t **long_path) {
             return E_OUTOFMEMORY;
         }
 
-        HRESULT hr = StringCchCopyW(*long_path, long_path_len, L"\\\\?\\");
-        if (SUCCEEDED(hr)) {
-            hr = StringCchCatW(*long_path, long_path_len, wide_path);
-        }
+        wcscpy(*long_path, L"\\\\?\\");
+        wcsncat(*long_path, wide_path, long_path_len - 5);
 
         free(wide_path);
-        return hr;
+        return S_OK;
     } else {
         *long_path = wide_path;
         return S_OK;
@@ -97,17 +96,11 @@ platform_dir_iter_t* platform_opendir(const char *utf8_path) {
         return NULL;
     }
 
-    HRESULT hr = StringCchCopyW(search_pattern, pattern_len, wide_path);
-    if (SUCCEEDED(hr)) {
-        hr = StringCchCatW(search_pattern, pattern_len, L"\\*");
-    }
+    wcsncpy(search_pattern, wide_path, pattern_len - 1);
+    search_pattern[pattern_len - 1] = L'\0';
+    wcsncat(search_pattern, L"\\*", pattern_len - wcslen(search_pattern) - 1);
 
     free(wide_path);
-
-    if (FAILED(hr)) {
-        free(search_pattern);
-        return NULL;
-    }
 
     platform_dir_iter_t *iter = malloc(sizeof(platform_dir_iter_t));
     if (!iter) {
@@ -148,7 +141,8 @@ bool platform_readdir(platform_dir_iter_t *iter, platform_file_info_t *info) {
     size_t name_len = wcslen(iter->find_data.cFileName) + 1;
     info->name_wide = malloc(name_len * sizeof(wchar_t));
     if (info->name_wide) {
-        StringCchCopyW(info->name_wide, name_len, iter->find_data.cFileName);
+        wcsncpy(info->name_wide, iter->find_data.cFileName, name_len - 1);
+        info->name_wide[name_len - 1] = L'\0';
     }
 
     info->size = ((uint64_t)iter->find_data.nFileSizeHigh << 32) | iter->find_data.nFileSizeLow;

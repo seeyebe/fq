@@ -1,6 +1,10 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
+#ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+#endif
+
 #ifdef _MSC_VER
     #define _CRT_SECURE_NO_WARNINGS
     #define STRSAFE_NO_DEPRECATE
@@ -120,6 +124,22 @@
     // GCC/Clang - standard C11 atomics
     #define STRSAFE_NO_DEPRECATE
     #include <stdatomic.h>
+    #include <string.h>
+    #include <strings.h>
+    #include <stdlib.h>
+    #ifndef _stricmp
+        #define _stricmp strcasecmp
+    #endif
+    static inline char* compat_strdup_local(const char *s) {
+        if (!s) return NULL;
+        size_t len = strlen(s) + 1;
+        char *copy = (char*)malloc(len);
+        if (!copy) return NULL;
+        memcpy(copy, s, len);
+        return copy;
+    }
+    #undef _strdup
+    #define _strdup compat_strdup_local
 #endif
 
 #endif

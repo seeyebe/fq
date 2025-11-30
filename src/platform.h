@@ -5,7 +5,17 @@
 #include <windows.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <strsafe.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+static inline size_t compat_strnlen_local(const char *s, size_t maxlen) {
+    size_t len = 0;
+    while (len < maxlen && s && s[len]) {
+        len++;
+    }
+    return len;
+}
 
 typedef struct {
     HANDLE handle;
@@ -26,11 +36,17 @@ static inline void auto_handle_close(auto_handle_t *ah) {
 }
 
 static inline HRESULT safe_strcpy(char *dest, size_t dest_size, const char *src) {
-    return StringCchCopyA(dest, dest_size, src);
+    if (!dest || !src || dest_size == 0) return E_INVALIDARG;
+    int written = snprintf(dest, dest_size, "%s", src);
+    return (written >= 0 && (size_t)written < dest_size) ? S_OK : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
 static inline HRESULT safe_strcat(char *dest, size_t dest_size, const char *src) {
-    return StringCchCatA(dest, dest_size, src);
+    if (!dest || !src || dest_size == 0) return E_INVALIDARG;
+    size_t len = compat_strnlen_local(dest, dest_size);
+    if (len >= dest_size) return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+    int written = snprintf(dest + len, dest_size - len, "%s", src);
+    return (written >= 0 && (size_t)written < dest_size - len) ? S_OK : HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
 }
 
 int utf8_to_wide(const char *utf8_str, wchar_t **wide_str);

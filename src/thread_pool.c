@@ -1,83 +1,125 @@
 #include "thread_pool.h"
+#include <windows.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stddef.h>
+#include <limits.h>
+
+typedef struct work_item {
+    work_function_t work_func;
+    void *user_data;
+    struct work_item *next;
+} work_item_t;
 
 struct thread_pool {
-    PTP_POOL pool;
-    TP_CALLBACK_ENVIRON callback_environ;
-    PTP_CLEANUP_GROUP cleanup_group;
+    HANDLE *threads;
+    size_t thread_count;
+
+    CRITICAL_SECTION queue_lock;
+    work_item_t *queue_head;
+    work_item_t *queue_tail;
+    HANDLE work_semaphore;
+
     atomic_size_t active_work_items;
     atomic_size_t completed_work_items;
     atomic_size_t total_submitted;
-    atomic_size_t queued_work_items;  // Track queued items ourselves
+    atomic_size_t queued_work_items;
+
     thread_pool_config_t config;
-    CRITICAL_SECTION stats_lock;
 };
 
-typedef struct {
-    work_function_t work_func;
-    void *user_data;
-    thread_pool_t *pool;
-} work_item_t;
+static DWORD WINAPI thread_pool_worker(LPVOID param) {
+    thread_pool_t *pool = (thread_pool_t*)param;
 
-static VOID CALLBACK thread_pool_work_callback(PTP_CALLBACK_INSTANCE instance, PVOID context, PTP_WORK work) {
-    (void)instance;
+    for (;;) {
+        if (pool->config.stop_flag && atomic_load(pool->config.stop_flag)) {
+            break;
+        }
 
-    work_item_t *item = (work_item_t*)context;
+        DWORD wait_result = WaitForSingleObject(pool->work_semaphore, 100);
+        if (wait_result == WAIT_TIMEOUT) {
+            continue;
+        }
+        if (wait_result != WAIT_OBJECT_0) {
+            break;
+        }
 
-    atomic_fetch_sub(&item->pool->queued_work_items, 1);
+        work_item_t *item = NULL;
+        EnterCriticalSection(&pool->queue_lock);
+        if (pool->queue_head) {
+            item = pool->queue_head;
+            pool->queue_head = item->next;
+            if (!pool->queue_head) {
+                pool->queue_tail = NULL;
+            }
+        }
+        LeaveCriticalSection(&pool->queue_lock);
 
-    if (item->pool->config.stop_flag && atomic_load(item->pool->config.stop_flag)) {
-        goto cleanup;
+        if (!item) {
+            continue;
+        }
+
+        atomic_fetch_sub(&pool->queued_work_items, 1);
+        atomic_fetch_add(&pool->active_work_items, 1);
+
+        item->work_func(NULL, item->user_data);
+
+        atomic_fetch_add(&pool->completed_work_items, 1);
+        atomic_fetch_sub(&pool->active_work_items, 1);
+
+        free(item);
     }
 
-    item->work_func(item, item->user_data);
-
-    atomic_fetch_add(&item->pool->completed_work_items, 1);
-    atomic_fetch_sub(&item->pool->active_work_items, 1);
-
-cleanup:
-    free(item);
-    CloseThreadpoolWork(work);
+    return 0;
 }
 
 thread_pool_t* thread_pool_create(const thread_pool_config_t *config) {
     if (!config) return NULL;
 
-    thread_pool_t *pool = calloc(1, sizeof(thread_pool_t));
+    thread_pool_t *pool = (thread_pool_t*)calloc(1, sizeof(thread_pool_t));
     if (!pool) return NULL;
 
     pool->config = *config;
+
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    size_t hw_threads = sysinfo.dwNumberOfProcessors > 0 ? sysinfo.dwNumberOfProcessors : 4;
+    pool->thread_count = config->max_threads > 0 ? config->max_threads : hw_threads;
 
     atomic_init(&pool->active_work_items, 0);
     atomic_init(&pool->completed_work_items, 0);
     atomic_init(&pool->total_submitted, 0);
     atomic_init(&pool->queued_work_items, 0);
 
-    if (!InitializeCriticalSectionAndSpinCount(&pool->stats_lock, 4000)) {
+    InitializeCriticalSection(&pool->queue_lock);
+    pool->work_semaphore = CreateSemaphoreA(NULL, 0, LONG_MAX, NULL);
+    if (!pool->work_semaphore) {
+        DeleteCriticalSection(&pool->queue_lock);
         free(pool);
         return NULL;
     }
 
-    pool->pool = CreateThreadpool(NULL);
-    if (!pool->pool) {
-        DeleteCriticalSection(&pool->stats_lock);
+    pool->threads = (HANDLE*)calloc(pool->thread_count, sizeof(HANDLE));
+    if (!pool->threads) {
+        CloseHandle(pool->work_semaphore);
+        DeleteCriticalSection(&pool->queue_lock);
         free(pool);
         return NULL;
     }
 
-    if (config->max_threads > 0) {
-        SetThreadpoolThreadMaximum(pool->pool, (DWORD)config->max_threads);
-        SetThreadpoolThreadMinimum(pool->pool, 1);
+    for (size_t i = 0; i < pool->thread_count; i++) {
+        pool->threads[i] = CreateThread(NULL, 0, thread_pool_worker, pool, 0, NULL);
+        if (!pool->threads[i]) {
+            pool->thread_count = i;
+            break;
+        }
     }
 
-    InitializeThreadpoolEnvironment(&pool->callback_environ);
-    SetThreadpoolCallbackPool(&pool->callback_environ, pool->pool);
-
-    pool->cleanup_group = CreateThreadpoolCleanupGroup();
-    if (pool->cleanup_group) {
-        SetThreadpoolCallbackCleanupGroup(&pool->callback_environ, pool->cleanup_group, NULL);
+    if (pool->thread_count == 0) {
+        CloseHandle(pool->work_semaphore);
+        DeleteCriticalSection(&pool->queue_lock);
+        free(pool->threads);
+        free(pool);
+        return NULL;
     }
 
     return pool;
@@ -90,25 +132,25 @@ bool thread_pool_submit(thread_pool_t *pool, work_function_t work_func, void *us
         return false;
     }
 
-    work_item_t *item = malloc(sizeof(work_item_t));
+    work_item_t *item = (work_item_t*)malloc(sizeof(work_item_t));
     if (!item) return false;
 
     item->work_func = work_func;
     item->user_data = user_data;
-    item->pool = pool;
+    item->next = NULL;
 
-    PTP_WORK work = CreateThreadpoolWork(thread_pool_work_callback, item, &pool->callback_environ);
-    if (!work) {
-        free(item);
-        return false;
+    EnterCriticalSection(&pool->queue_lock);
+    if (pool->queue_tail) {
+        pool->queue_tail->next = item;
+        pool->queue_tail = item;
+    } else {
+        pool->queue_head = pool->queue_tail = item;
     }
+    LeaveCriticalSection(&pool->queue_lock);
 
     atomic_fetch_add(&pool->queued_work_items, 1);
     atomic_fetch_add(&pool->total_submitted, 1);
-
-    SubmitThreadpoolWork(work);
-
-    atomic_fetch_add(&pool->active_work_items, 1);
+    ReleaseSemaphore(pool->work_semaphore, 1, NULL);
 
     return true;
 }
@@ -116,36 +158,34 @@ bool thread_pool_submit(thread_pool_t *pool, work_function_t work_func, void *us
 bool thread_pool_wait_completion(thread_pool_t *pool, DWORD timeout_ms) {
     if (!pool) return false;
 
-    DWORD start_time = GetTickCount();
+    DWORD start = GetTickCount();
+    for (;;) {
+        size_t active = atomic_load(&pool->active_work_items);
+        size_t queued = atomic_load(&pool->queued_work_items);
 
-    while (atomic_load(&pool->active_work_items) > 0) {
+        if (active == 0 && queued == 0) {
+            return true;
+        }
+
         if (timeout_ms != INFINITE) {
-            DWORD elapsed = GetTickCount() - start_time;
+            DWORD elapsed = GetTickCount() - start;
             if (elapsed >= timeout_ms) {
                 return false;
             }
         }
 
-        if (pool->config.stop_flag && atomic_load(pool->config.stop_flag)) {
-            break;
-        }
-
         if (pool->config.progress_cb) {
             size_t completed = atomic_load(&pool->completed_work_items);
-            size_t active = atomic_load(&pool->active_work_items);
-
             if (!pool->config.progress_cb(completed, active, pool->config.progress_user_data)) {
                 if (pool->config.stop_flag) {
                     atomic_store(pool->config.stop_flag, true);
                 }
-                break;
+                return false;
             }
         }
 
         Sleep(10);
     }
-
-    return true;
 }
 
 void thread_pool_destroy(thread_pool_t *pool) {
@@ -155,31 +195,39 @@ void thread_pool_destroy(thread_pool_t *pool) {
         atomic_store(pool->config.stop_flag, true);
     }
 
-    if (pool->cleanup_group) {
-        CloseThreadpoolCleanupGroupMembers(pool->cleanup_group, FALSE, NULL);
-        CloseThreadpoolCleanupGroup(pool->cleanup_group);
+    for (size_t i = 0; i < pool->thread_count; i++) {
+        ReleaseSemaphore(pool->work_semaphore, 1, NULL);
     }
 
-    DestroyThreadpoolEnvironment(&pool->callback_environ);
+    WaitForMultipleObjects((DWORD)pool->thread_count, pool->threads, TRUE, 5000);
 
-    if (pool->pool) {
-        CloseThreadpool(pool->pool);
+    for (size_t i = 0; i < pool->thread_count; i++) {
+        if (pool->threads[i]) {
+            CloseHandle(pool->threads[i]);
+        }
     }
 
-    DeleteCriticalSection(&pool->stats_lock);
+    CloseHandle(pool->work_semaphore);
+    DeleteCriticalSection(&pool->queue_lock);
+
+    work_item_t *item = pool->queue_head;
+    while (item) {
+        work_item_t *next = item->next;
+        free(item);
+        item = next;
+    }
+
+    free(pool->threads);
     free(pool);
 }
 
 bool thread_pool_get_stats(thread_pool_t *pool, thread_pool_stats_t *stats) {
     if (!pool || !stats) return false;
 
-    EnterCriticalSection(&pool->stats_lock);
-
     stats->active_threads = atomic_load(&pool->active_work_items);
     stats->queued_work_items = atomic_load(&pool->queued_work_items);
     stats->completed_work_items = atomic_load(&pool->completed_work_items);
     stats->total_submitted = atomic_load(&pool->total_submitted);
 
-    LeaveCriticalSection(&pool->stats_lock);
     return true;
 }
