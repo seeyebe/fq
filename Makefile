@@ -48,8 +48,16 @@ msvc-debug: TARGET = fq_msvc_debug.exe
 msvc-debug: OUTFILE = $(BUILDDIR)/$(TARGET)
 msvc-debug: $(OUTFILE)
 
+ifeq ($(SHELL),cmd.exe)
+  MKDIR_P = if not exist "$(BUILDDIR)" mkdir "$(BUILDDIR)"
+  RMDIR = if exist "$(BUILDDIR)" rmdir /s /q "$(BUILDDIR)"
+else
+  MKDIR_P = mkdir -p "$(BUILDDIR)"
+  RMDIR = rm -rf "$(BUILDDIR)"
+endif
+
 $(OUTFILE): $(SOURCES)
-	@if not exist "$(BUILDDIR)" mkdir "$(BUILDDIR)"
+	@$(MKDIR_P)
 ifeq ($(CC),cl)
 	$(CC) $(CFLAGS) /I$(SRCDIR) $(SOURCES) /Fe:$(OUTFILE) /link $(LIBS)
 else
@@ -57,7 +65,7 @@ else
 endif
 
 clean:
-	@if exist "$(BUILDDIR)" rmdir /s /q "$(BUILDDIR)"
+	@$(RMDIR)
 
 install: $(OUTFILE)
 	copy "$(OUTFILE)" "C:\Windows\System32\"
