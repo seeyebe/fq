@@ -1,4 +1,12 @@
-SHELL = cmd.exe
+ifeq ($(OS),Windows_NT)
+  ifdef MSYSTEM
+    SHELL = /bin/sh
+  else
+    SHELL = cmd.exe
+  endif
+else
+  SHELL = /bin/sh
+endif
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 SRCDIR = src
