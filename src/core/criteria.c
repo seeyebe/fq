@@ -1,6 +1,6 @@
 #include "criteria.h"
-#include "platform.h"
-#include "utils.h"
+#include "../platform/platform.h"
+#include "../util/utils.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -58,7 +58,6 @@ bool criteria_parse_extensions(search_criteria_t *criteria, const char *extensio
         return false;
     }
 
-    char *context = NULL;
     char *token = strtok(copy, ",");
     size_t index = 0;
 
@@ -120,17 +119,6 @@ bool criteria_validate(const search_criteria_t *criteria) {
 
     if (!criteria->include_files && !criteria->include_directories) {
         return false;
-    }
-
-    if (!criteria->search_term) {
-        if (!criteria->extensions_count &&
-            !criteria->has_min_size &&
-            !criteria->has_max_size &&
-            !criteria->has_exact_size &&
-            !criteria->has_after_time &&
-            !criteria->has_before_time) {
-            return false;
-        }
     }
 
     if (criteria->has_min_size && criteria->has_max_size &&
@@ -234,6 +222,6 @@ bool criteria_file_type_matches(const char *filename, const search_criteria_t *c
     if (_stricmp(filter, "archive") == 0) {
         return has_extension(filename, archive_extensions);
     }
-    
+
     return false;
 }

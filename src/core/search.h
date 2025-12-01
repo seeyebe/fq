@@ -2,9 +2,9 @@
 #define SEARCH_H
 
 #include "criteria.h"
-#include "platform.h"
+#include "../platform/platform.h"
 #include "pattern.h"
-#include "thread_pool.h"
+#include "../platform/thread_pool.h"
 #include <windows.h>
 #include <stdbool.h>
 #include <stdint.h>

@@ -1,8 +1,8 @@
 #ifndef CLI_H
 #define CLI_H
 
-#include "criteria.h"
-#include "search.h"
+#include "../core/criteria.h"
+#include "../core/search.h"
 #include <stdbool.h>
 
 typedef enum {

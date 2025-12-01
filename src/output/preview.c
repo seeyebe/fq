@@ -1,6 +1,6 @@
 #include "preview.h"
-#include "platform.h"
-#include "utils.h"
+#include "../platform/platform.h"
+#include "../util/utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -141,7 +141,7 @@ int preview_file_summary(const char *filepath, FILE *output) {
 
     char size_str[64];
     if (fileSize.QuadPart < 1024) {
-        snprintf(size_str, sizeof(size_str), "%lld bytes", fileSize.QuadPart);
+        snprintf(size_str, sizeof(size_str), "%I64d bytes", fileSize.QuadPart);
     } else if (fileSize.QuadPart < 1024 * 1024) {
         snprintf(size_str, sizeof(size_str), "%.1f KB", fileSize.QuadPart / 1024.0);
     } else if (fileSize.QuadPart < 1024 * 1024 * 1024) {

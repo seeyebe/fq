@@ -1,8 +1,8 @@
 #ifndef OUTPUT_H
 #define OUTPUT_H
 
-#include "search.h"
-#include "criteria.h"
+#include "../core/search.h"
+#include "../core/criteria.h"
 #include <stdio.h>
 
 typedef enum {

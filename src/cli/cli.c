@@ -1,7 +1,7 @@
 #include "cli.h"
-#include "criteria.h"
-#include "utils.h"
-#include "output.h"
+#include "../core/criteria.h"
+#include "../util/utils.h"
+#include "../output/output.h"
 #include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,11 +19,11 @@ static int parse_date_arg(const char *arg, FILETIME *file_time) {
 
 void print_usage(const char *program_name) {
     printf("fq - fast file and folder search tool for Windows\n\n");
-    printf("Usage: %s <directory> <pattern> [OPTIONS]\n\n", program_name);
+    printf("Usage: %s [pattern] [path] [OPTIONS]\n\n", program_name);
 
     printf("Arguments:\n");
-    printf("  <directory>         The directory to search in\n");
-    printf("  <pattern>           Search pattern (use --glob for wildcards)\n\n");
+    printf("  [pattern]           Search pattern (default: match all)\n");
+    printf("  [path]              Directory to search (default: current directory)\n\n");
 
     printf("Search Options:\n");
     printf("  -c, --case              Case-sensitive search\n");
@@ -63,14 +63,16 @@ void print_usage(const char *program_name) {
     printf("  -V, --version       Show version information\n\n");
 
     printf("Examples:\n");
+    printf("  List all files in current directory:\n");
+    printf("    %s\n\n", program_name);
+    printf("  Search for files matching 'main':\n");
+    printf("    %s main\n\n", program_name);
     printf("  Search for all PNG files:\n");
-    printf("    %s D:\\ \"*.png\" --glob\n\n", program_name);
+    printf("    %s \"*.png\" D:\\ --glob\n\n", program_name);
     printf("  Find documents larger than 1MB:\n");
-    printf("    %s . document --min 1M --ext pdf,docx\n\n", program_name);
-    printf("  Find files smaller than 100KB:\n");
-    printf("    %s . \"\" --size -100K --ext txt\n\n", program_name);
+    printf("    %s document . --min 1M --ext pdf,docx\n\n", program_name);
     printf("  Case-sensitive search with thread monitoring:\n");
-    printf("    %s C:\\ \"Config\" --case --stats --threads 8\n\n", program_name);
+    printf("    %s Config C:\\ --case --stats --threads 8\n\n", program_name);
 
     printf("For glob patterns: * (any chars), ? (single char), [abc] (char set), {jpg,png} (alternatives)\n");
 }
@@ -80,37 +82,82 @@ void print_version(void) {
     printf("Copyright (c) 2025. Open source under MIT license.\n");
 }
 
+static bool is_option(const char *arg) {
+    return arg && arg[0] == '-';
+}
+
+static bool is_path(const char *arg) {
+    if (!arg) return false;
+    if (arg[0] == '.' || arg[0] == '/' || arg[0] == '\\') return true;
+    if (strlen(arg) >= 2 && arg[1] == ':') return true;
+    DWORD attrs = GetFileAttributesA(arg);
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        return true;
+    }
+    return false;
+}
+
 int parse_command_line(int argc, char *argv[], search_criteria_t *criteria, cli_options_t *options) {
     criteria_init(criteria);
     init_options(options);
 
-    if (argc < 2) {
-        return -1;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            options->show_help = true;
+            return 0;
+        }
+        if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-V") == 0) {
+            options->show_version = true;
+            return 0;
+        }
     }
 
-    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-        options->show_help = true;
-        return 0;
+    // Collect positional arguments (non-options)
+    char *positional[2] = {NULL, NULL};
+    int positional_count = 0;
+    int options_start = argc;  // Index where we start parsing options
+
+    for (int i = 1; i < argc && positional_count < 2; i++) {
+        if (is_option(argv[i])) {
+            options_start = i;
+            break;
+        }
+        positional[positional_count++] = argv[i];
+        options_start = i + 1;
     }
 
-    if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0) {
-        options->show_version = true;
-        return 0;
+
+    char *pattern = NULL;
+    char *path = NULL;
+
+    if (positional_count == 0) {
+        // fq → list all files in current directory
+        pattern = "";
+        path = ".";
+    } else if (positional_count == 1) {
+        // fq <arg> → is it a path or pattern?
+        if (is_path(positional[0])) {
+            pattern = "";
+            path = positional[0];
+        } else {
+            pattern = positional[0];
+            path = ".";
+        }
+    } else {
+        // fq <arg1> <arg2> → pattern path (like fd)
+        pattern = positional[0];
+        path = positional[1];
     }
 
-    if (argc < 3) {
-        return -1;
-    }
-
-    criteria->root_path = _strdup(argv[1]);
-    criteria->search_term = _strdup(argv[2]);
+    criteria->root_path = _strdup(path);
+    criteria->search_term = _strdup(pattern);
 
     if (!criteria->root_path || !criteria->search_term) {
         criteria_cleanup(criteria);
         return -1;
     }
 
-    for (int i = 3; i < argc; i++) {
+    for (int i = options_start; i < argc; i++) {
         if (strcmp(argv[i], "--case") == 0 || strcmp(argv[i], "-c") == 0) {
             criteria->case_sensitive = true;
         } else if (strcmp(argv[i], "--glob") == 0 || strcmp(argv[i], "-g") == 0) {

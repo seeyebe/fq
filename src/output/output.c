@@ -1,6 +1,6 @@
 #include "output.h"
-#include "utils.h"
-#include "version.h"
+#include "../util/utils.h"
+#include "../cli/version.h"
 #include "preview.h"
 #include <stdio.h>
 #include <inttypes.h>
@@ -72,6 +72,7 @@ static void output_json_format(FILE *fp, const search_result_t *results, size_t 
 }
 
 static void output_text_format(FILE *fp, const search_result_t *results, size_t count) {
+    (void)count;
     const search_result_t *current = results;
 
     while (current) {
@@ -99,6 +100,7 @@ int output_search_results(FILE *fp, const search_result_t *results, size_t count
 }
 
 static void output_text_format_with_preview(FILE *fp, const search_result_t *results, size_t count, const search_criteria_t *criteria) {
+    (void)count;
     const search_result_t *current = results;
 
     while (current) {

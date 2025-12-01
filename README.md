@@ -1,31 +1,40 @@
 # fq
 
-`fq` is a small Windows search tool. It walks directories with a thread pool, matches files and folders by name (glob or regex), and filters by extension, type, size, date, depth, and hidden/symlink rules. Single executable, no dependencies.
+`fq` is a fast Windows file search tool. Like [fd](https://github.com/sharkdp/fd), but optimized for Windows. It walks directories with a thread pool, matches files and folders by name (glob or regex), and filters by extension, type, size, date, depth, and hidden/symlink rules. Single executable, no dependencies.
 
 ## Usage
 ```
-fq <root> <pattern> [options]
+fq [pattern] [path] [options]
 ```
-- `<pattern>` can be empty (`""`) to match everything.
+- `pattern` defaults to match all files if omitted
+- `path` defaults to current directory if omitted
 - Use `--glob` for glob patterns, `--regex` for regex. Without either, substring match is used.
-- `--folders` or `--folders-only` include directories in results. Default results are files only.
 
 ## Examples
 ```bash
+# List all files in current directory
+fq
+
+# Find files containing "main" in name
+fq main
+
+# Search in a specific directory
+fq main src
+
 # All C sources under a tree
-fq C:\Dev "*.c" --glob
+fq "*.c" C:\Dev --glob
 
 # Files over 100MB anywhere on C:
-fq C:\ "" --size +100M
+fq "" C:\ --size +100M
 
 # Recent PDFs or DOCX
-fq . report --ext pdf,docx --after 2025-01-01
+fq report . --ext pdf,docx --after 2025-01-01
 
 # Watch thread stats while searching
-fq D:\ "backup" --stats --threads 12
+fq backup D:\ --stats --threads 12
 
 # Find folders named "build"
-fq . build --folders
+fq build --folders
 ```
 
 ## Common options
@@ -39,8 +48,8 @@ fq . build --folders
 ## Build
 ```bash
 # GCC / MinGW
-gcc -std=c11 -O3 src/*.c src/regex/*.c -lshlwapi -lkernel32 -lshell32 -o fq.exe
-make          # uses the Makefile (defaults to -std=c11)
+gcc -std=c11 -O3 -Isrc src/main.c src/core/*.c src/output/*.c src/platform/*.c src/cli/*.c src/util/*.c src/regex/*.c -lshlwapi -lkernel32 -lshell32 -o fq.exe
+make          # uses the Makefile
 ```
 ```cmd
 :: MSVC

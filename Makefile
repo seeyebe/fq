@@ -10,7 +10,13 @@ endif
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 SRCDIR = src
-SOURCES = $(SRCDIR)/main.c $(SRCDIR)/cli.c $(SRCDIR)/criteria.c $(SRCDIR)/output.c $(SRCDIR)/pattern.c $(SRCDIR)/platform.c $(SRCDIR)/preview.c $(SRCDIR)/search.c $(SRCDIR)/thread_pool.c $(SRCDIR)/utils.c $(SRCDIR)/version.c $(SRCDIR)/regex/re.c $(SRCDIR)/regex/regex.c
+SOURCES = $(SRCDIR)/main.c \
+          $(SRCDIR)/core/search.c $(SRCDIR)/core/criteria.c $(SRCDIR)/core/pattern.c \
+          $(SRCDIR)/output/output.c $(SRCDIR)/output/preview.c \
+          $(SRCDIR)/platform/platform.c $(SRCDIR)/platform/thread_pool.c \
+          $(SRCDIR)/cli/cli.c $(SRCDIR)/cli/version.c \
+          $(SRCDIR)/util/utils.c \
+          $(SRCDIR)/regex/re.c $(SRCDIR)/regex/regex.c
 TARGET = fq.exe
 BUILDDIR = build
 OUTFILE = $(BUILDDIR)/$(TARGET)

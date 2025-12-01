@@ -1,6 +1,6 @@
 #include "pattern.h"
-#include "regex/regex.h"
-#include "compat.h"
+#include "../regex/regex.h"
+#include "../platform/compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>

@@ -1,14 +1,14 @@
-#include "compat.h"
-#include "search.h"
-#include "cli.h"
-#include "utils.h"
-#include "criteria.h"
-#include "output.h"
-#include "pattern.h"
-#include "platform.h"
-#include "preview.h"
-#include "thread_pool.h"
-#include "version.h"
+#include "platform/compat.h"
+#include "core/search.h"
+#include "cli/cli.h"
+#include "util/utils.h"
+#include "core/criteria.h"
+#include "output/output.h"
+#include "core/pattern.h"
+#include "platform/platform.h"
+#include "output/preview.h"
+#include "platform/thread_pool.h"
+#include "cli/version.h"
 #include "regex/re.h"
 #include "regex/regex.h"
 #include <io.h>
@@ -25,6 +25,36 @@ int _fileno(FILE *);
 
 
 #include <time.h>
+
+#define OUTPUT_BUFFER_SIZE 65536
+static char g_output_buffer[OUTPUT_BUFFER_SIZE];
+static size_t g_output_pos = 0;
+static size_t g_results_since_flush = 0;
+#define FLUSH_THRESHOLD 64
+
+static void output_flush(void) {
+    if (g_output_pos > 0) {
+        fwrite(g_output_buffer, 1, g_output_pos, stdout);
+        g_output_pos = 0;
+    }
+}
+
+static void output_write(const char *str, size_t len) {
+    if (g_output_pos + len > OUTPUT_BUFFER_SIZE) {
+        output_flush();
+    }
+    // If single write is larger than buffer, write directly
+    if (len > OUTPUT_BUFFER_SIZE) {
+        fwrite(str, 1, len, stdout);
+        return;
+    }
+    memcpy(g_output_buffer + g_output_pos, str, len);
+    g_output_pos += len;
+}
+
+static void output_puts(const char *str) {
+    output_write(str, strlen(str));
+}
 
 typedef struct {
     cli_options_t *options;
@@ -64,13 +94,17 @@ static bool should_use_color(const cli_options_t *options) {
 
 static void print_path_colored(const search_result_t *result, bool use_color) {
     if (!result) return;
+
     if (!use_color) {
-        printf("%s\n", result->path);
+        output_puts(result->path);
+        output_write("\n", 1);
         return;
     }
 
     const char *color = result->is_directory ? "\x1b[36m" : "\x1b[32m";
-    printf("%s%s\x1b[0m\n", color, result->path);
+    output_puts(color);
+    output_puts(result->path);
+    output_puts("\x1b[0m\n");
 }
 
 static char** convert_wargv_to_utf8(int argc, wchar_t *wargv[]) {
@@ -104,7 +138,10 @@ static bool streamed_result_callback(const search_result_t *result, void *user_d
         return true;
     }
     if (state->criteria->preview_mode) {
+        // Preview mode needs immediate output
+        output_flush();
         print_path_colored(result, state->use_color);
+        output_flush();
         if (!result->is_directory) {
             fq_file_type_t type = detect_file_type(result->path);
             if (type == FQ_FILE_TYPE_TEXT) {
@@ -116,10 +153,15 @@ static bool streamed_result_callback(const search_result_t *result, void *user_d
             fprintf(stdout, "  [Directory]\n");
         }
         printf("\n");
+        fflush(stdout);
     } else {
         print_path_colored(result, state->use_color);
+        g_results_since_flush++;
+        if (g_results_since_flush >= FLUSH_THRESHOLD) {
+            output_flush();
+            g_results_since_flush = 0;
+        }
     }
-    fflush(stdout);
     return true;
 }
 
@@ -139,6 +181,7 @@ static bool streamed_progress_callback(size_t processed_files, size_t queued_dir
 }
 
 int main(int argc, char *argv_placeholder[]) {
+    (void)argc;
     search_criteria_t criteria;
     cli_options_t options = {0};
     search_result_t *results = NULL;
@@ -187,16 +230,11 @@ int main(int argc, char *argv_placeholder[]) {
 
     platform_dir_iter_t *test_dir = platform_opendir(criteria.root_path);
     if (!test_dir) {
-        fprintf(stderr, "Error: Root directory '%s' does not exist or cannot be accessed\n", criteria.root_path);
+        fprintf(stderr, "Error: '%s': No such file or directory\n", criteria.root_path);
         exit_code = 1;
         goto cleanup;
     }
     platform_closedir(test_dir);
-
-    if (!options.quiet) {
-        fprintf(stderr, "Searching in '%s' for '%s'...\n", criteria.root_path, criteria.search_term ? criteria.search_term : "*");
-    }
-
 
     streamed_state_t stream_state = {0};
     stream_state.options = &options;
@@ -217,9 +255,8 @@ int main(int argc, char *argv_placeholder[]) {
         streamed_result_callback, &stream_state,
         streamed_progress_callback, &stream_state);
 
-    if (!options.quiet) {
-        fprintf(stderr, "\n");
-    }
+    // Final flush of any remaining buffered output
+    output_flush();
 
     if (search_result == -2) {
         fprintf(stderr,
@@ -237,15 +274,8 @@ int main(int argc, char *argv_placeholder[]) {
             exit_code = 1;
             goto cleanup;
         }
-    } else {
-        if (!options.quiet) {
-            if (result_count > 0) {
-                fprintf(stderr, "Found %zu results.\n", result_count);
-            } else {
-                fprintf(stderr, "No results found.\n");
-            }
-        }
     }
+    // No summary output like fd - just silent
 
 cleanup:
     free_search_results(results);

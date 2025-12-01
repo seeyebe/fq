@@ -89,6 +89,13 @@ platform_dir_iter_t* platform_opendir(const char *utf8_path) {
         return NULL;
     }
 
+    // Check if directory exists
+    DWORD attrs = GetFileAttributesW(wide_path);
+    if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        free(wide_path);
+        return NULL;
+    }
+
     size_t pattern_len = wcslen(wide_path) + 3; // path + "\*" + null
     wchar_t *search_pattern = malloc(pattern_len * sizeof(wchar_t));
     if (!search_pattern) {

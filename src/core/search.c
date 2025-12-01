@@ -1,8 +1,8 @@
 #include "search.h"
-#include "utils.h"
+#include "../util/utils.h"
 #include "pattern.h"
-#include "platform.h"
-#include "thread_pool.h"
+#include "../platform/platform.h"
+#include "../platform/thread_pool.h"
 #include "criteria.h"
 #include <stdio.h>
 #include <stdlib.h>
